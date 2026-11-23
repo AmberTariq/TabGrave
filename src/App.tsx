@@ -6,7 +6,7 @@ import {
 } from './components/Icons';
 import { LegalModal, type LegalDocType } from './components/LegalModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
-import { parseBookmarkHtml } from './lib/bookmarkParser';
+import { getHttpUrl, parseBookmarkHtml } from './lib/bookmarkParser';
 import { triageTabs } from './lib/geminiTriage';
 import {
   FILTER_TABS,
@@ -30,6 +30,10 @@ const SAMPLE_SIX_TABS = [
   'https://staffeng.com/guides/staff-archetypes/ - Staff Engineer Archetypes - StaffEng',
   'https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API/Using_Service_Workers - Using Service Workers (Duplicate Tab)',
 ].join('\n');
+
+function getLedgerLink(url: string): string {
+  return url.startsWith('https://example.invalid/note/') ? '' : getHttpUrl(url);
+}
 
 function formatDeskDate(date: Date): string {
   return date
@@ -75,7 +79,15 @@ function loadStoredLedger(): TriagedTab[] {
     const raw = localStorage.getItem(STORAGE_KEYS.LEDGER);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as TriagedTab[]) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is TriagedTab => (
+        item && typeof item.id === 'string' && typeof item.url === 'string' && typeof item.title === 'string'
+        && typeof item.domain === 'string' && typeof item.section === 'string'
+        && typeof item.epitaphSummary === 'string' && typeof item.recommendation === 'string'
+        && typeof item.recommendationReason === 'string' && Number.isFinite(item.readTimeMinutes)
+        && Number.isFinite(item.addedAt)
+      ))
+      : [];
   } catch {
     return [];
   }
@@ -109,7 +121,7 @@ export default function App() {
   );
   const [isSorting, setIsSorting] = useState<boolean>(false);
   const [deskNotice, setDeskNotice] = useState<{
-    tone: 'neutral' | 'error' | 'offline';
+    tone: 'neutral' | 'error';
     message: string;
   } | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
@@ -214,8 +226,13 @@ export default function App() {
       });
       return;
     }
-    const text = await file.text();
-    const extracted = parseBookmarkHtml(text);
+    let extracted: string;
+    try {
+      extracted = parseBookmarkHtml(await file.text());
+    } catch {
+      setDeskNotice({ tone: 'error', message: 'Could not read that bookmark file. Try exporting it again.' });
+      return;
+    }
     if (!extracted) {
       setDeskNotice({
         tone: 'error',
@@ -242,9 +259,9 @@ export default function App() {
 
   const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (file) {
       await processBookmarkFile(file);
-      e.target.value = '';
     }
   };
 
@@ -258,41 +275,24 @@ export default function App() {
 
     const existingUrls = ledger.map((item) => item.url).filter(Boolean);
 
-    const applyNewItems = (items: TriagedTab[], notice: { tone: 'neutral' | 'offline'; message: string }) => {
-      setAnimatedBatchIds(new Set(items.map((item) => item.id)));
-      setLedger((prev) => [...items, ...prev]);
-      setRawInput('');
-      setDeskNotice(notice);
-    };
-
     try {
-      const result = await triageTabs(trimmed, existingUrls, isOnline);
+      const { items } = await triageTabs(trimmed, existingUrls, isOnline);
 
-      if (result.items.length === 0) {
+      if (items.length === 0) {
         setDeskNotice({
           tone: 'error',
           message: 'No sortable links or notes were identified in that text.',
         });
-        setIsSorting(false);
         return;
       }
 
-      if (result.mode === 'offline') {
-        applyNewItems(result.items, {
-          tone: 'offline',
-          message: `Offline Mode: sorted ${result.items.length} ${result.items.length === 1 ? 'entry' : 'entries'} locally using the built-in classifier.`,
-        });
-      } else if (result.mode === 'missing-key-fallback') {
-        applyNewItems(result.items, {
-          tone: 'offline',
-          message: `Sorted ${result.items.length} ${result.items.length === 1 ? 'entry' : 'entries'} with the local classifier (VITE_GEMINI_API_KEY is not configured).`,
-        });
-      } else {
-        applyNewItems(result.items, {
-          tone: 'neutral',
-          message: `Triaged ${result.items.length} ${result.items.length === 1 ? 'entry' : 'entries'} into your reading ledger.`,
-        });
-      }
+      setAnimatedBatchIds(new Set(items.map((item) => item.id)));
+      setLedger((prev) => [...items, ...prev]);
+      setRawInput((current) => current === rawInput ? '' : current);
+      setDeskNotice({
+        tone: 'neutral',
+        message: `Sorted ${items.length} ${items.length === 1 ? 'entry' : 'entries'} into your reading ledger.`,
+      });
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : 'Could not complete tab triage. Please try again.';
@@ -543,8 +543,6 @@ export default function App() {
                 className={`mt-4 rounded-[2px] border px-3.5 py-2.5 font-sans text-xs leading-relaxed ${
                   deskNotice.tone === 'error'
                     ? 'border-[#A6442E] bg-[#F5F1E8] text-[#A6442E]'
-                    : deskNotice.tone === 'offline'
-                    ? 'border-[#57534A] bg-[#F5F1E8] text-[#1B1A18]'
                     : 'border-[#3B5E4D]/60 bg-[#F5F1E8] text-[#3B5E4D]'
                 }`}
               >
@@ -578,6 +576,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={handleResetDesk}
+                  disabled={isSorting}
                   className="min-h-[36px] font-mono text-xs uppercase tracking-[0.06em] text-[#57534A] underline decoration-[#CFC7B6] underline-offset-4 hover:text-[#1B1A18] hover:decoration-[#1B1A18] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#A6442E]"
                 >
                   Reset Desk
@@ -675,9 +674,9 @@ export default function App() {
                         >
                           Done Reading
                         </button>
-                        {todaysPick.url && !todaysPick.url.startsWith('https://example.invalid/') && (
+                        {getLedgerLink(todaysPick.url) && (
                           <a
-                            href={todaysPick.url}
+                            href={getLedgerLink(todaysPick.url)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="min-h-[42px] inline-flex items-center px-2 font-mono text-xs uppercase tracking-[0.06em] text-[#1B1A18] underline decoration-[#CFC7B6] underline-offset-4 hover:decoration-[#1B1A18] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#A6442E]"
@@ -753,9 +752,9 @@ export default function App() {
                         </p>
 
                         <div className="mt-3 flex items-center gap-5">
-                          {item.url && !item.url.startsWith('https://example.invalid/') && (
+                          {getLedgerLink(item.url) && (
                             <a
-                              href={item.url}
+                              href={getLedgerLink(item.url)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="inline-flex min-h-[36px] items-center font-mono text-xs uppercase tracking-[0.06em] text-[#1B1A18] underline decoration-[#CFC7B6] underline-offset-4 hover:decoration-[#1B1A18] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#A6442E]"
