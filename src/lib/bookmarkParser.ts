@@ -60,7 +60,7 @@ export function extractEntriesFromRawInput(rawInput: string): ParsedInputEntry[]
       const url = cleanTrailingPunctuation(urlMatch[0]);
       const remainder = line
         .replace(urlMatch[0], '')
-        .replace(/^[\s\-:|–—]+|[\s\-:|–—]+$/g, '')
+        .replace(/^[\s\-:|\u2013\u2014]+|[\s\-:|\u2013\u2014]+$/g, '')
         .trim();
       entries.push({
         url,
@@ -77,7 +77,7 @@ export function extractEntriesFromRawInput(rawInput: string): ParsedInputEntry[]
       const url = `https://${domainPath}`;
       const remainder = line
         .replace(domainMatch[0], '')
-        .replace(/^[\s\-:|–—]+|[\s\-:|–—]+$/g, '')
+        .replace(/^[\s\-:|\u2013\u2014]+|[\s\-:|\u2013\u2014]+$/g, '')
         .trim();
       entries.push({
         url,
