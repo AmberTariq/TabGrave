@@ -1,0 +1,6 @@
+{
+  "name": "TabGrave",
+  "description": "A calm archival reading ledger and link triage desk for clearing forgotten browser tabs, built to work online and offline.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
