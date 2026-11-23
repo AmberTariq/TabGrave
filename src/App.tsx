@@ -121,7 +121,7 @@ export default function App() {
   );
   const [isSorting, setIsSorting] = useState<boolean>(false);
   const [deskNotice, setDeskNotice] = useState<{
-    tone: 'neutral' | 'error' | 'offline';
+    tone: 'neutral' | 'error';
     message: string;
   } | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
@@ -275,17 +275,10 @@ export default function App() {
 
     const existingUrls = ledger.map((item) => item.url).filter(Boolean);
 
-    const applyNewItems = (items: TriagedTab[], notice: { tone: 'neutral' | 'offline'; message: string }) => {
-      setAnimatedBatchIds(new Set(items.map((item) => item.id)));
-      setLedger((prev) => [...items, ...prev]);
-      setRawInput((current) => current === rawInput ? '' : current);
-      setDeskNotice(notice);
-    };
-
     try {
-      const result = await triageTabs(trimmed, existingUrls, isOnline);
+      const { items } = await triageTabs(trimmed, existingUrls, isOnline);
 
-      if (result.items.length === 0) {
+      if (items.length === 0) {
         setDeskNotice({
           tone: 'error',
           message: 'No sortable links or notes were identified in that text.',
@@ -293,22 +286,13 @@ export default function App() {
         return;
       }
 
-      if (result.mode === 'offline') {
-        applyNewItems(result.items, {
-          tone: 'offline',
-          message: `Offline Mode: sorted ${result.items.length} ${result.items.length === 1 ? 'entry' : 'entries'} locally using the built-in classifier.`,
-        });
-      } else if (result.mode === 'local-fallback') {
-        applyNewItems(result.items, {
-          tone: 'offline',
-          message: `Sorted ${result.items.length} ${result.items.length === 1 ? 'entry' : 'entries'} with the built-in local classifier.`,
-        });
-      } else {
-        applyNewItems(result.items, {
-          tone: 'neutral',
-          message: `Triaged ${result.items.length} ${result.items.length === 1 ? 'entry' : 'entries'} into your reading ledger.`,
-        });
-      }
+      setAnimatedBatchIds(new Set(items.map((item) => item.id)));
+      setLedger((prev) => [...items, ...prev]);
+      setRawInput((current) => current === rawInput ? '' : current);
+      setDeskNotice({
+        tone: 'neutral',
+        message: `Sorted ${items.length} ${items.length === 1 ? 'entry' : 'entries'} into your reading ledger.`,
+      });
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : 'Could not complete tab triage. Please try again.';
@@ -559,8 +543,6 @@ export default function App() {
                 className={`mt-4 rounded-[2px] border px-3.5 py-2.5 font-sans text-xs leading-relaxed ${
                   deskNotice.tone === 'error'
                     ? 'border-[#A6442E] bg-[#F5F1E8] text-[#A6442E]'
-                    : deskNotice.tone === 'offline'
-                    ? 'border-[#57534A] bg-[#F5F1E8] text-[#1B1A18]'
                     : 'border-[#3B5E4D]/60 bg-[#F5F1E8] text-[#3B5E4D]'
                 }`}
               >
