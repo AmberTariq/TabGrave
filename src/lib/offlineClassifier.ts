@@ -1,6 +1,8 @@
 import { extractEntriesFromRawInput } from './bookmarkParser';
 import type { ArchiveSection, RecommendationVerdict, TriagedTab } from '../types';
 
+export const DUPLICATE_REASON = 'Duplicate entry already recorded in your current reading ledger.';
+
 function deriveDomain(url: string): string {
   if (!url) return 'desk.note';
   try {
@@ -12,7 +14,7 @@ function deriveDomain(url: string): string {
 }
 
 function deriveTitle(url: string, rawTitle: string, domain: string): string {
-  if (rawTitle && rawTitle.length > 2) {
+  if (rawTitle) {
     return rawTitle.replace(/\s+/g, ' ').trim();
   }
   if (!url) return 'Untitled Desk Note';
@@ -41,8 +43,8 @@ function normalizeUrlForDuplicateCheck(url: string): string {
   if (!url) return '';
   try {
     const parsed = new URL(url);
-    const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
-    const path = parsed.pathname.replace(/\/+$/, '').toLowerCase();
+    const host = parsed.host.replace(/^www\./, '');
+    const path = parsed.pathname.replace(/\/+$/, '');
     return `${host}${path}${parsed.search}`;
   } catch {
     return url.toLowerCase().trim();
@@ -55,7 +57,8 @@ export function classifyTabsOffline(
 ): TriagedTab[] {
   const entries = extractEntriesFromRawInput(rawInput);
   const seenUrls = new Set(
-    existingUrls.map(normalizeUrlForDuplicateCheck).filter(Boolean)
+    existingUrls.filter((url) => !url.startsWith('https://example.invalid/note/'))
+      .map(normalizeUrlForDuplicateCheck).filter(Boolean)
   );
   const now = Date.now();
 
@@ -80,10 +83,14 @@ export function classifyTabsOffline(
     let epitaphSummary = `Saved page from ${domain} covering ${title.toLowerCase()}.`;
     let readTimeMinutes = 5;
 
-    if (isDuplicate) {
+    if (entry.isNoteOnly) {
+      recommendationReason = 'Captured plain-text reminder kept in the archive for follow-up.';
+      epitaphSummary = `Personal desk note recorded without an attached URL: ${title}.`;
+      readTimeMinutes = 1;
+    } else if (isDuplicate) {
       section = 'Ready to Close';
       recommendation = 'Close Forever';
-      recommendationReason = 'Duplicate entry already recorded in your current reading ledger.';
+      recommendationReason = DUPLICATE_REASON;
       epitaphSummary = `Duplicate bookmark pointing to ${domain} that repeats an existing open tab. Closing this copy keeps the ledger clean.`;
       readTimeMinutes = 1;
     } else if (
@@ -129,17 +136,11 @@ export function classifyTabsOffline(
         : 'Practical resource to keep indexed until the project or meal arises.';
       epitaphSummary = `Saved article from ${domain} on ${title}. Offers practical methods or thoughtful perspective without urgent deadlines.`;
       readTimeMinutes = isEssay ? 8 : 4;
-    } else if (entry.isNoteOnly) {
-      section = 'Useful Someday';
-      recommendation = 'File in Archive';
-      recommendationReason = 'Captured plain-text reminder kept in the archive for follow-up.';
-      epitaphSummary = `Personal desk note recorded without an attached URL: ${title}.`;
-      readTimeMinutes = 1;
     }
 
     return {
       id: `tab-${now}-${index}-${Math.random().toString(36).slice(2, 7)}`,
-      url: entry.url || `https://example.invalid/note/${index + 1}`,
+      url: entry.url,
       title,
       domain,
       section,

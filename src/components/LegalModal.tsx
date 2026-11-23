@@ -83,10 +83,10 @@ export const LegalModal: React.FC<LegalModalProps> = ({ docType, onClose }) => {
                 records immediately.
               </p>
               <p>
-                When you click Sort My Tabs while online with an API key configured, the text pasted
-                into the Tab Dump ledger is sent directly from your browser to the Gemini API solely
-                to classify links and generate concise summaries. No account registration, tracking
-                cookies, or advertising profiles are used.
+                When you click Sort My Tabs while online, the URLs and titles extracted from your draft
+                may be sent to Gemini through the TabGrave server to classify links and generate summaries.
+                The existing ledger is not sent. No account registration, tracking cookies, or advertising
+                profiles are used.
               </p>
               <p>
                 When your device is offline, TabGrave runs its local classifier directly inside your browser
