@@ -7,7 +7,7 @@ import {
 import { LegalModal, type LegalDocType } from './components/LegalModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { parseBookmarkHtml } from './lib/bookmarkParser';
-import { classifyTabsOffline } from './lib/offlineClassifier';
+import { triageTabs } from './lib/geminiTriage';
 import {
   FILTER_TABS,
   type ArchiveSection,
@@ -265,36 +265,10 @@ export default function App() {
       setDeskNotice(notice);
     };
 
-    if (!isOnline) {
-      const localItems = classifyTabsOffline(trimmed, existingUrls);
-      applyNewItems(localItems, {
-        tone: 'offline',
-        message: `Offline Mode: sorted ${localItems.length} ${localItems.length === 1 ? 'entry' : 'entries'} locally using the built-in classifier.`,
-      });
-      setIsSorting(false);
-      return;
-    }
-
     try {
-      const response = await fetch('/api/triage', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rawInput: trimmed, existingUrls }),
-      });
+      const result = await triageTabs(trimmed, existingUrls, isOnline);
 
-      if (!response.ok) {
-        const errPayload = (await response.json().catch(() => ({}))) as { error?: string };
-        setDeskNotice({
-          tone: 'error',
-          message: errPayload.error || `Triage request returned status ${response.status}.`,
-        });
-        setIsSorting(false);
-        return;
-      }
-
-      const data = (await response.json()) as { items?: TriagedTab[] };
-      const items = Array.isArray(data.items) ? data.items : [];
-      if (items.length === 0) {
+      if (result.items.length === 0) {
         setDeskNotice({
           tone: 'error',
           message: 'No sortable links or notes were identified in that text.',
@@ -303,16 +277,28 @@ export default function App() {
         return;
       }
 
-      applyNewItems(items, {
-        tone: 'neutral',
-        message: `Triaged ${items.length} ${items.length === 1 ? 'entry' : 'entries'} into your reading ledger.`,
-      });
-    } catch {
-      // Network unreachable even if navigator.onLine was stale: fall back cleanly to local classifier
-      const localItems = classifyTabsOffline(trimmed, existingUrls);
-      applyNewItems(localItems, {
-        tone: 'offline',
-        message: `Network unreachable: sorted ${localItems.length} ${localItems.length === 1 ? 'entry' : 'entries'} locally in Offline Mode.`,
+      if (result.mode === 'offline') {
+        applyNewItems(result.items, {
+          tone: 'offline',
+          message: `Offline Mode: sorted ${result.items.length} ${result.items.length === 1 ? 'entry' : 'entries'} locally using the built-in classifier.`,
+        });
+      } else if (result.mode === 'missing-key-fallback') {
+        applyNewItems(result.items, {
+          tone: 'offline',
+          message: `Sorted ${result.items.length} ${result.items.length === 1 ? 'entry' : 'entries'} with the local classifier (VITE_GEMINI_API_KEY is not configured).`,
+        });
+      } else {
+        applyNewItems(result.items, {
+          tone: 'neutral',
+          message: `Triaged ${result.items.length} ${result.items.length === 1 ? 'entry' : 'entries'} into your reading ledger.`,
+        });
+      }
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : 'Could not complete tab triage. Please try again.';
+      setDeskNotice({
+        tone: 'error',
+        message,
       });
     } finally {
       setIsSorting(false);
